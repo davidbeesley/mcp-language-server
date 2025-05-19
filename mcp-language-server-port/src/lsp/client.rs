@@ -9,7 +9,6 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
-    io::{BufReader, BufWriter},
     path::Path,
     process::{Child, Command, Stdio},
     sync::{
@@ -67,7 +66,7 @@ pub struct Client {
 
     // State tracking
     open_files: RwLock<HashMap<String, OpenFileInfo>>,
-    _diagnostics: RwLock<HashMap<DocumentUri, Vec<lsp_types::Diagnostic>>>,
+    diagnostics: RwLock<HashMap<DocumentUri, Vec<lsp_types::Diagnostic>>>,
 
     // Handlers for server requests and notifications
     notification_handlers: RwLock<HashMap<String, NotificationHandler>>,
@@ -99,12 +98,21 @@ impl Client {
             .take()
             .ok_or_else(|| anyhow!("Failed to open stderr pipe"))?;
 
+        // Convert to async IO
+        let stdin = tokio::process::ChildStdin::from_std(stdin)
+            .context("Failed to convert stdin to async")?;
+        let stdout = tokio::process::ChildStdout::from_std(stdout)
+            .context("Failed to convert stdout to async")?;
+        let stderr = tokio::process::ChildStderr::from_std(stderr)
+            .context("Failed to convert stderr to async")?;
+
         // Create buffered readers and writers
-        let _stdin_writer = BufWriter::new(stdin);
-        let _stdout_reader = BufReader::new(stdout);
+        let stdin_writer = TokioBufWriter::new(stdin);
+        let stdout_reader = TokioBufReader::new(stdout);
 
         // Create message channel
-        let (tx, mut rx) = mpsc::channel::<ClientMessage>(100);
+        let (tx, rx) = mpsc::channel::<ClientMessage>(100);
+        let (msg_tx, msg_rx) = mpsc::channel::<Message>(100);
 
         // Create the client instance
         let client = Arc::new(Self {
@@ -112,15 +120,12 @@ impl Client {
             next_id: AtomicI32::new(1),
             message_tx: tx,
             open_files: RwLock::new(HashMap::new()),
-            _diagnostics: RwLock::new(HashMap::new()),
+            diagnostics: RwLock::new(HashMap::new()),
             notification_handlers: RwLock::new(HashMap::new()),
             request_handlers: RwLock::new(HashMap::new()),
         });
 
         // Handle stderr in a separate task
-        let stderr = tokio::process::ChildStderr::from_std(stderr)
-            .context("Failed to convert stderr to async")?;
-
         tokio::spawn(async move {
             let mut reader = tokio::io::BufReader::new(stderr);
             let mut buffer = Vec::new();
@@ -153,21 +158,52 @@ impl Client {
             }
         });
 
+        // Spawn a task to handle reading messages from the LSP server
+        let msg_tx_clone = msg_tx.clone();
+        tokio::spawn(async move {
+            let mut reader = stdout_reader;
+            
+            loop {
+                match super::transport::read_message(&mut reader).await {
+                    Ok(msg) => {
+                        if let Err(e) = msg_tx_clone.send(msg).await {
+                            error!("[TRANSPORT] Failed to forward server message: {}", e);
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        error!("[TRANSPORT] Error reading message from LSP server: {}", e);
+                        break;
+                    }
+                }
+            }
+            
+            debug!("[TRANSPORT] LSP server read loop terminated");
+        });
+
         // Spawn a task to handle the message loop
         let client_ref = Arc::clone(&client);
-        let stdin_writer = TokioBufWriter::new(tokio::io::sink());
-        let stdout_reader = TokioBufReader::new(tokio::io::empty());
         tokio::spawn(async move {
             if let Err(e) = Client::message_loop(
                 client_ref,
-                &mut rx,
-                &mut TokioBufReader::new(stdout_reader),
-                &mut TokioBufWriter::new(stdin_writer),
+                rx,
+                msg_rx,
+                stdin_writer,
             )
             .await
             {
                 error!("[LSP] Message loop error: {}", e);
             }
+        });
+
+        // Register default notification handlers
+        let client_ref = Arc::clone(&client);
+        let diagnostics_client = Arc::clone(&client);
+        client_ref.register_notification_handler("textDocument/publishDiagnostics", move |params| {
+            let diagnostics_params: lsp_types::PublishDiagnosticsParams = serde_json::from_value(params)?;
+            let mut diagnostics = diagnostics_client.diagnostics.write().unwrap();
+            diagnostics.insert(diagnostics_params.uri, diagnostics_params.diagnostics);
+            Ok(())
         });
 
         Ok(client)
@@ -433,7 +469,7 @@ impl Client {
 
     /// Gets diagnostics for a file
     pub fn get_diagnostics(&self, uri: &DocumentUri) -> Vec<lsp_types::Diagnostic> {
-        let diagnostics = self._diagnostics.read().unwrap();
+        let diagnostics = self.diagnostics.read().unwrap();
         diagnostics.get(uri).cloned().unwrap_or_default()
     }
 
@@ -513,29 +549,17 @@ impl Client {
     // Private methods
 
     /// Handles messages from the LSP server
-    async fn message_loop<R, W>(
+    async fn message_loop<W>(
         client: Arc<Client>,
-        rx: &mut mpsc::Receiver<ClientMessage>,
-        _reader: &mut R,
-        writer: &mut W,
+        mut rx: mpsc::Receiver<ClientMessage>,
+        mut msg_rx: mpsc::Receiver<Message>,
+        mut writer: W,
     ) -> Result<()>
     where
-        R: AsyncReadExt + Unpin,
         W: AsyncWriteExt + Unpin,
     {
         // Maps message IDs to response channels
         let mut response_channels: HashMap<String, oneshot::Sender<Result<Value>>> = HashMap::new();
-
-        // Split the processing into two tasks: one for reading from the LSP server,
-        // and one for writing to it
-        let (_msg_tx, mut msg_rx) = mpsc::channel::<Message>(100);
-
-        // Spawn a task to read messages from the server
-        let read_task = tokio::spawn(async move {
-            // Implementation of reading from the server will go here
-            // It will receive messages, process them, and send responses when needed
-            Ok::<_, anyhow::Error>(())
-        });
 
         // Process messages from both channels: the client and the server
         loop {
@@ -558,7 +582,7 @@ impl Client {
                             response_channels.insert(id.to_string(), response_tx);
 
                             // Send the message to the server
-                            write_message(writer, &msg).await?;
+                            write_message(&mut writer, &msg).await?;
                         }
                         ClientMessage::Notification { method, params } => {
                             // Create an LSP notification message
@@ -572,7 +596,7 @@ impl Client {
                             };
 
                             // Send the message to the server
-                            write_message(writer, &msg).await?;
+                            write_message(&mut writer, &msg).await?;
                         }
                         ClientMessage::Shutdown => {
                             // Clean shutdown
@@ -639,7 +663,7 @@ impl Client {
                             };
 
                             // Send response back to server
-                            write_message(writer, &response).await?;
+                            write_message(&mut writer, &response).await?;
                         } else {
                             // This is a notification
                             let method_name = method.clone();
@@ -662,9 +686,6 @@ impl Client {
                 else => break,
             }
         }
-
-        // Cancel the read task
-        read_task.abort();
 
         info!("[LSP] Message loop terminated");
         Ok(())
