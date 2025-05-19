@@ -41,7 +41,7 @@ struct Config {
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging
-    crate::logging::init();
+    logging::debug();
 
     info!("MCP Language Server starting");
 
