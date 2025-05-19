@@ -162,7 +162,7 @@ impl Client {
         let msg_tx_clone = msg_tx.clone();
         tokio::spawn(async move {
             let mut reader = stdout_reader;
-            
+
             loop {
                 match super::transport::read_message(&mut reader).await {
                     Ok(msg) => {
@@ -177,21 +177,14 @@ impl Client {
                     }
                 }
             }
-            
+
             debug!("[TRANSPORT] LSP server read loop terminated");
         });
 
         // Spawn a task to handle the message loop
         let client_ref = Arc::clone(&client);
         tokio::spawn(async move {
-            if let Err(e) = Client::message_loop(
-                client_ref,
-                rx,
-                msg_rx,
-                stdin_writer,
-            )
-            .await
-            {
+            if let Err(e) = Client::message_loop(client_ref, rx, msg_rx, stdin_writer).await {
                 error!("[LSP] Message loop error: {}", e);
             }
         });
@@ -199,12 +192,16 @@ impl Client {
         // Register default notification handlers
         let client_ref = Arc::clone(&client);
         let diagnostics_client = Arc::clone(&client);
-        client_ref.register_notification_handler("textDocument/publishDiagnostics", move |params| {
-            let diagnostics_params: lsp_types::PublishDiagnosticsParams = serde_json::from_value(params)?;
-            let mut diagnostics = diagnostics_client.diagnostics.write().unwrap();
-            diagnostics.insert(diagnostics_params.uri, diagnostics_params.diagnostics);
-            Ok(())
-        });
+        client_ref.register_notification_handler(
+            "textDocument/publishDiagnostics",
+            move |params| {
+                let diagnostics_params: lsp_types::PublishDiagnosticsParams =
+                    serde_json::from_value(params)?;
+                let mut diagnostics = diagnostics_client.diagnostics.write().unwrap();
+                diagnostics.insert(diagnostics_params.uri, diagnostics_params.diagnostics);
+                Ok(())
+            },
+        );
 
         Ok(client)
     }
@@ -227,56 +224,56 @@ impl Client {
             })),
 
             capabilities: ClientCapabilities {
-            workspace: Some(lsp_types::WorkspaceClientCapabilities {
-                configuration: Some(true),
-                did_change_configuration: Some(
-                    lsp_types::DidChangeConfigurationClientCapabilities {
-                        dynamic_registration: Some(true),
-                    },
-                ),
-                did_change_watched_files: Some(
-                    lsp_types::DidChangeWatchedFilesClientCapabilities {
-                        dynamic_registration: Some(true),
-                        relative_pattern_support: Some(true),
-                    },
-                ),
-                workspace_folders: Some(true),
-                ..Default::default()
-            }),
-            text_document: Some(lsp_types::TextDocumentClientCapabilities {
-                synchronization: Some(lsp_types::TextDocumentSyncClientCapabilities {
-                    dynamic_registration: Some(true),
-                    did_save: Some(true),
+                workspace: Some(lsp_types::WorkspaceClientCapabilities {
+                    configuration: Some(true),
+                    did_change_configuration: Some(
+                        lsp_types::DidChangeConfigurationClientCapabilities {
+                            dynamic_registration: Some(true),
+                        },
+                    ),
+                    did_change_watched_files: Some(
+                        lsp_types::DidChangeWatchedFilesClientCapabilities {
+                            dynamic_registration: Some(true),
+                            relative_pattern_support: Some(true),
+                        },
+                    ),
+                    workspace_folders: Some(true),
                     ..Default::default()
                 }),
-                completion: Some(lsp_types::CompletionClientCapabilities {
-                    dynamic_registration: Some(true),
-                    completion_item: Some(lsp_types::CompletionItemCapability {
-                        snippet_support: Some(true),
+                text_document: Some(lsp_types::TextDocumentClientCapabilities {
+                    synchronization: Some(lsp_types::TextDocumentSyncClientCapabilities {
+                        dynamic_registration: Some(true),
+                        did_save: Some(true),
+                        ..Default::default()
+                    }),
+                    completion: Some(lsp_types::CompletionClientCapabilities {
+                        dynamic_registration: Some(true),
+                        completion_item: Some(lsp_types::CompletionItemCapability {
+                            snippet_support: Some(true),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                    hover: Some(lsp_types::HoverClientCapabilities {
+                        dynamic_registration: Some(true),
+                        ..Default::default()
+                    }),
+                    code_action: Some(lsp_types::CodeActionClientCapabilities {
+                        dynamic_registration: Some(true),
+                        code_action_literal_support: Some(lsp_types::CodeActionLiteralSupport {
+                            code_action_kind: lsp_types::CodeActionKindLiteralSupport {
+                                value_set: vec![
+                                    CodeActionKind::QUICKFIX.as_str().to_string(),
+                                    CodeActionKind::REFACTOR.as_str().to_string(),
+                                    CodeActionKind::SOURCE.as_str().to_string(),
+                                ],
+                            },
+                        }),
                         ..Default::default()
                     }),
                     ..Default::default()
                 }),
-                hover: Some(lsp_types::HoverClientCapabilities {
-                    dynamic_registration: Some(true),
-                    ..Default::default()
-                }),
-                code_action: Some(lsp_types::CodeActionClientCapabilities {
-                    dynamic_registration: Some(true),
-                    code_action_literal_support: Some(lsp_types::CodeActionLiteralSupport {
-                        code_action_kind: lsp_types::CodeActionKindLiteralSupport {
-                            value_set: vec![
-                                CodeActionKind::QUICKFIX.as_str().to_string(),
-                                CodeActionKind::REFACTOR.as_str().to_string(),
-                                CodeActionKind::SOURCE.as_str().to_string(),
-                            ],
-                        },
-                    }),
-                    ..Default::default()
-                }),
                 ..Default::default()
-            }),
-            ..Default::default()
             },
             trace: Some(lsp_types::TraceValue::Off),
             workspace_folders: Some(vec![WorkspaceFolder {
@@ -355,7 +352,13 @@ impl Client {
         // Track the open file
         {
             let mut open_files = self.open_files.write().unwrap();
-            open_files.insert(uri_str, OpenFileInfo { version: 1, _uri: uri });
+            open_files.insert(
+                uri_str,
+                OpenFileInfo {
+                    version: 1,
+                    _uri: uri,
+                },
+            );
         }
 
         debug!("[LSP] Opened file: {}", file_path.display());

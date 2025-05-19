@@ -10,9 +10,9 @@ use tokio::sync::mpsc;
 
 mod logging;
 mod lsp;
+mod mcp;
 mod tools;
 mod watcher;
-mod mcp;
 
 use crate::watcher::{FileSystemWatcher, WorkspaceWatcher};
 use log::info;
@@ -36,7 +36,6 @@ struct Config {
     #[arg(last = true)]
     lsp_args: Vec<String>,
 }
-
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -102,14 +101,12 @@ async fn main() -> Result<()> {
         .context("Failed to start workspace watcher")?;
 
     // Create MCP server handler
-    let server_handler = mcp::McpLanguageServer::new(
-        Arc::clone(&lsp_client),
-        config.workspace.clone(),
-    );
+    let server_handler =
+        mcp::McpLanguageServer::new(Arc::clone(&lsp_client), config.workspace.clone());
 
     // Create the MCP server with stdin/stdout transport
     let transport = (tokio::io::stdin(), tokio::io::stdout());
-    
+
     // Start the MCP server
     let server_handle = tokio::spawn(async move {
         match rmcp::serve_server(server_handler, transport).await {

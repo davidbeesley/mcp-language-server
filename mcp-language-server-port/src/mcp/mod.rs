@@ -1,6 +1,6 @@
 use anyhow::Result;
-use rmcp::{ServerHandler, tool};
 use rmcp::model::ServerInfo;
+use rmcp::{ServerHandler, tool};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
@@ -118,8 +118,9 @@ impl McpLanguageServer {
         let path = Path::new(&request.file_path).to_path_buf();
         let context_lines = request.context_lines.unwrap_or(5);
         let show_line_numbers = request.show_line_numbers.unwrap_or(true);
-        
-        match tools::get_diagnostics(&self.lsp_client, path, context_lines, show_line_numbers).await {
+
+        match tools::get_diagnostics(&self.lsp_client, path, context_lines, show_line_numbers).await
+        {
             Ok(result) => result,
             Err(e) => format!("Error getting diagnostics: {}", e),
         }
@@ -137,7 +138,15 @@ impl McpLanguageServer {
     #[tool(description = "Rename a symbol at a specific position")]
     async fn rename_symbol(&self, #[tool(aggr)] request: RenameRequest) -> String {
         let path = Path::new(&request.file_path).to_path_buf();
-        match tools::rename_symbol(&self.lsp_client, path, request.line, request.column, request.new_name).await {
+        match tools::rename_symbol(
+            &self.lsp_client,
+            path,
+            request.line,
+            request.column,
+            request.new_name,
+        )
+        .await
+        {
             Ok(result) => result,
             Err(e) => format!("Error renaming symbol: {}", e),
         }

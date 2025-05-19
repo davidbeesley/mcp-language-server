@@ -3,9 +3,9 @@ use log::{Level, LevelFilter, Record, info, log_enabled};
 use std::fmt::{Arguments, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::io::Write;
+use std::process;
 use std::sync::Once;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::process;
 
 use ansi_colors::ColouredStr;
 use chrono::{DateTime, Utc};
@@ -284,7 +284,6 @@ fn write_single_line(f: &mut Formatter, line: &str) -> core::fmt::Result {
     }
     write!(f, "{}", line)
 }
-
 
 #[cfg(test)]
 mod tests {
