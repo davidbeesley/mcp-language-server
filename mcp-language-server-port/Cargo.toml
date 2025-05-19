@@ -1,0 +1,32 @@
+[package]
+name = "mcp-language-server-rust"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+log = "0.4"
+env_logger = "0.10"
+thiserror = "1.0"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+schemars = "0.8"
+tokio = { version = "1.32", features = ["full"] }
+lsp-types = "0.94"
+rmcp = { version = "0.1.5", features = ["tower", "transport-io", "transport-sse-server", "macros", "server"] }
+lazy_static = "1.4"
+chrono = "0.4"
+notify = "6.1"
+ignore = "0.4"
+path-absolutize = "3.1"
+async-trait = "0.1"
+futures = "0.3"
+ahash = "0.8.12"
+ansi-colors = "0.3.0"
+nohash-hasher = "0.2.0"
+smallstr = "0.3.0"
+termion = "4.0.5"
+dirs = "6.0.0"
+stdio-override = "0.2.0"
+tracing = "0.1.41"
