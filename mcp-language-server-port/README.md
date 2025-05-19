@@ -40,6 +40,28 @@ This is a Rust implementation of the [MCP Language Server](https://github.com/is
 
 This is beta software. Please create an issue if you run into any problems or have suggestions.
 
+## Testing
+
+The project includes a comprehensive test suite to ensure functionality and reliability:
+
+```bash
+# Run all tests
+cargo test
+
+# Run tests with logging
+RUST_LOG=debug cargo test
+
+# Run a specific test
+cargo test test_client_initialization
+```
+
+The tests include:
+- Integration tests for LSP client initialization and shutdown
+- Integration tests for file operations (open, change, close)
+- Integration tests for LSP features (diagnostics, hover, edits)
+- Integration tests for MCP server functionality
+- Tests for the file system watcher
+
 ## Contributing
 
-Contributions are welcome. Please keep PRs small and open issues first for substantial changes.
+Contributions are welcome. Please keep PRs small and open issues first for substantial changes. All PRs should include appropriate tests for new functionality.
