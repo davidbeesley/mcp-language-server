@@ -137,18 +137,31 @@ async fn test_hover() -> Result<()> {
     let file_path = temp_dir.child("person.rs").path().to_path_buf();
     client.open_file(&file_path).await?;
 
+    // Create a clone of the file path for the spawned task
+    let file_path_clone = file_path.clone();
+    
     // Set up the mock server to respond to hover requests
     let _ = tokio::spawn(async move {
         sleep(Duration::from_millis(50)).await;
         let messages = mock_server.get_received_messages();
         for message in messages {
             if message.contains("\"method\":\"textDocument/hover\"") {
-                mock_server.handle_hover(lsp_types::TextDocumentPositionParams {
-                    text_document: lsp_types::TextDocumentIdentifier {
-                        uri: Url::from_file_path(&file_path).unwrap(),
-                    },
-                    position: Position { line: 7, character: 10 },
-                })?;
+                // Extract the request ID from the message
+                let json_message: serde_json::Value = serde_json::from_str(&message)?;
+                let id = json_message.get("id")
+                                    .and_then(|id| id.as_i64())
+                                    .map(|id| id as i32)
+                                    .unwrap_or(1);
+                
+                mock_server.handle_hover(
+                    serde_json::json!(id), // Convert i32 to serde_json::Value
+                    lsp_types::TextDocumentPositionParams {
+                        text_document: lsp_types::TextDocumentIdentifier {
+                            uri: Url::from_file_path(&file_path_clone).unwrap(),
+                        },
+                        position: Position { line: 7, character: 10 },
+                    }
+                )?;
                 break;
             }
         }
@@ -158,7 +171,7 @@ async fn test_hover() -> Result<()> {
     // Get hover info using our tool
     let line = 8; // 1-indexed for our tool
     let column = 11; // 1-indexed for our tool
-    let hover_result = tools::get_hover_info(&client, file_path.clone(), line, column).await?;
+    let hover_result = tools::get_hover_info(&client, file_path, line, column).await?;
     
     // Verify we got some hover information
     assert!(!hover_result.is_empty(), "Hover result should not be empty");
@@ -195,7 +208,7 @@ async fn test_text_edits() -> Result<()> {
         tools::edit::TextEditParams {
             start_line: 2, // 1-indexed
             end_line: 2,   // 1-indexed
-            new_text: "    println!(\"Hello, edited world!\");\n",
+            new_text: "    println!(\"Hello, edited world!\");\n".to_string(),
         },
     ];
 

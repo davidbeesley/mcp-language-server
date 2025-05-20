@@ -8,11 +8,11 @@ use std::sync::Arc;
 use test_log::test;
 use tokio::time::{sleep, Duration};
 
-use crate::mock_lsp_server::MockLspServer;
+// MockLspServer not used in these tests
 use mcp_language_server_rust::lsp::Client;
 use mcp_language_server_rust::watcher::{FileSystemWatcher, WorkspaceWatcher};
 
-/// Setup test environment
+/// Setup test environment - returns Arc'd client
 async fn setup_test_env() -> Result<(TempDir, Arc<Client>)> {
     // Create a temporary directory for the workspace
     let temp_dir = TempDir::new()?;
@@ -28,14 +28,14 @@ async fn setup_test_env() -> Result<(TempDir, Arc<Client>)> {
     temp_dir.child("tmp").create_dir_all()?;
     temp_dir.child("tmp/ignored.rs").touch()?;
 
-    // Start the LSP client
+    // Start the LSP client - note that it returns Arc<Client>
     let client = Client::new("bash", &["-c".to_string(), "cat".to_string()]).await?;
 
     // Initialize the client
     let workspace_dir = temp_dir.path();
     client.initialize(workspace_dir).await?;
 
-    Ok((temp_dir, Arc::new(client)))
+    Ok((temp_dir, client))
 }
 
 #[test(tokio::test)]
@@ -44,7 +44,7 @@ async fn test_watcher_creation() -> Result<()> {
     // Setup test environment
     let (temp_dir, client) = setup_test_env().await?;
     
-    // Create the watcher
+    // Create the watcher - client is already an Arc<Client>
     let workspace_watcher = FileSystemWatcher::new(Arc::clone(&client), temp_dir.path().to_path_buf());
     
     // Start watching
@@ -65,7 +65,7 @@ async fn test_watcher_file_changes() -> Result<()> {
     // Setup test environment
     let (temp_dir, client) = setup_test_env().await?;
     
-    // Create the watcher
+    // Create the watcher - client is already an Arc<Client>
     let workspace_watcher = FileSystemWatcher::new(Arc::clone(&client), temp_dir.path().to_path_buf());
     
     // Start watching

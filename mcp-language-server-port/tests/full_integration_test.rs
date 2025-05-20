@@ -6,7 +6,7 @@ use assert_fs::TempDir;
 use serial_test::serial;
 use std::sync::Arc;
 use test_log::test;
-use tokio::time::{sleep, Duration};
+// No sleep or Duration needed
 
 use mcp_language_server_rust::lsp::Client;
 use mcp_language_server_rust::mcp::McpLanguageServer;
@@ -66,15 +66,15 @@ fn main() {
     // Open the file
     client_arc.open_file(&file_path).await?;
     
-    // Create an MCP server
-    let mcp_server = McpLanguageServer::new(Arc::clone(&client_arc), workspace_dir.to_path_buf());
+    // Create an MCP server (not used in this test)
+    let _mcp_server = McpLanguageServer::new(Arc::clone(&client_arc), workspace_dir.to_path_buf());
     
     // Test file modifications via tools
     let edits = vec![
         tools::edit::TextEditParams {
             start_line: 4,
             end_line: 4,
-            new_text: "    name: String,\n    email: String,\n    age: u32,\n",
+            new_text: "    name: String,\n    email: String,\n    age: u32,\n".to_string(),
         }
     ];
     
@@ -91,7 +91,7 @@ fn main() {
         tools::edit::TextEditParams {
             start_line: 12,
             end_line: 12,
-            new_text: "            name: name.to_string(),\n            email: email.to_string(),\n            age: 0,\n",
+            new_text: "            name: name.to_string(),\n            email: email.to_string(),\n            age: 0,\n".to_string(),
         }
     ];
     

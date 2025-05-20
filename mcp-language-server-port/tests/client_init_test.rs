@@ -3,7 +3,7 @@ mod mock_lsp_server;
 use anyhow::Result;
 use assert_fs::prelude::*;
 use assert_fs::TempDir;
-use lsp_types::{InitializeParams, InitializedParams};
+// No imports needed from lsp_types
 use serial_test::serial;
 use test_log::test;
 use tokio::time::{sleep, Duration};

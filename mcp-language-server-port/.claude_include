@@ -1,0 +1,10 @@
+{
+  "/home/dave/git/mcp-language-server/mcp-language-server-port": "enter",
+  "/home/dave/git/mcp-language-server/mcp-language-server-port/README.md": "read",
+  "/home/dave/git/mcp-language-server/mcp-language-server-port/LICENSE": "exclude",
+  "/home/dave/git/mcp-language-server/mcp-language-server-port/Cargo.toml": "read",
+  "/home/dave/git/mcp-language-server/mcp-language-server-port/Cargo.lock": "exclude",
+  "/home/dave/git/mcp-language-server/mcp-language-server-port/src": "read",
+  "/home/dave/git/mcp-language-server/mcp-language-server-port/tests": "read",
+  "/home/dave/git/mcp-language-server/mcp-language-server-port/.claude": "exclude"
+}

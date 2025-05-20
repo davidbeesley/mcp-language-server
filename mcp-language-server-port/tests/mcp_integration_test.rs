@@ -3,8 +3,8 @@ mod mock_lsp_server;
 use anyhow::Result;
 use assert_fs::prelude::*;
 use assert_fs::TempDir;
-use futures::FutureExt;
-use rmcp::model::ServerInfo;
+// futures::FutureExt is used within impl blocks
+// ServerInfo is used via trait
 use serial_test::serial;
 use serde_json::json;
 use std::sync::Arc;
@@ -40,18 +40,27 @@ impl AsyncRead for MockTransport {
     ) -> std::task::Poll<std::io::Result<()>> {
         // Simplified implementation for testing
         let this = self.get_mut();
-        let future = this.rx.recv().map(|opt| {
-            match opt {
-                Some(message) => {
-                    let bytes = message.into_bytes();
-                    let len = bytes.len().min(buf.remaining());
-                    buf.put_slice(&bytes[..len]);
-                    Ok(())
+        
+        // We need a pinned future
+        use futures::FutureExt;
+        
+        // Create a new future each time
+        let mut future = Box::pin(this.rx.recv());
+        
+        match future.poll_unpin(cx) {
+            std::task::Poll::Ready(opt) => {
+                match opt {
+                    Some(message) => {
+                        let bytes = message.into_bytes();
+                        let len = bytes.len().min(buf.remaining());
+                        buf.put_slice(&bytes[..len]);
+                        std::task::Poll::Ready(Ok(()))
+                    }
+                    None => std::task::Poll::Ready(Ok(())),
                 }
-                None => Ok(()),
             }
-        });
-        future.poll_unpin(cx)
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
     }
 }
 
@@ -65,13 +74,22 @@ impl AsyncWrite for MockTransport {
         let this = self.get_mut();
         let message = std::str::from_utf8(buf).unwrap_or("invalid utf8").to_string();
         let len = buf.len();
-        let future = this.tx.send(message).map(|result| {
-            match result {
-                Ok(_) => Ok(len),
-                Err(_) => Ok(0),
+        
+        // We need a pinned future
+        use futures::FutureExt;
+        
+        // Create a new future each time
+        let mut future = Box::pin(this.tx.send(message));
+        
+        match future.poll_unpin(cx) {
+            std::task::Poll::Ready(result) => {
+                match result {
+                    Ok(_) => std::task::Poll::Ready(Ok(len)),
+                    Err(_) => std::task::Poll::Ready(Ok(0)),
+                }
             }
-        });
-        future.poll_unpin(cx)
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
     }
 
     fn poll_flush(
@@ -89,7 +107,7 @@ impl AsyncWrite for MockTransport {
     }
 }
 
-/// Setup test environment
+/// Setup test environment - returns Arc'd client
 async fn setup_test_env() -> Result<(TempDir, MockLspServer, Arc<Client>)> {
     // Create a temporary directory for the workspace
     let temp_dir = TempDir::new()?;
@@ -105,14 +123,14 @@ fn main() {
     // Start the mock LSP server
     let mock_server = MockLspServer::start()?;
 
-    // Start the LSP client
+    // Start the LSP client - note it returns Arc<Client>
     let client = Client::new("bash", &["-c".to_string(), "cat".to_string()]).await?;
 
     // Initialize the client
     let workspace_dir = temp_dir.path();
     client.initialize(workspace_dir).await?;
 
-    Ok((temp_dir, mock_server, Arc::new(client)))
+    Ok((temp_dir, mock_server, client))
 }
 
 #[test(tokio::test)]
@@ -121,8 +139,8 @@ async fn test_mcp_server_info() -> Result<()> {
     // Setup test environment
     let (temp_dir, _mock_server, lsp_client) = setup_test_env().await?;
 
-    // Create MCP server
-    let mcp_server = McpLanguageServer::new(lsp_client, temp_dir.path().to_path_buf());
+    // Create MCP server - client is already an Arc<Client>
+    let mcp_server = McpLanguageServer::new(Arc::clone(&lsp_client), temp_dir.path().to_path_buf());
 
     // Test the server info
     let info = rmcp::ServerHandler::get_info(&mcp_server);
@@ -149,8 +167,8 @@ async fn test_mcp_diagnostics_tool() -> Result<()> {
     let diagnostics = MockLspServer::create_mock_diagnostics();
     mock_server.send_diagnostics(uri, diagnostics)?;
 
-    // Create MCP server
-    let mcp_server = McpLanguageServer::new(lsp_client, temp_dir.path().to_path_buf());
+    // Create MCP server - client is already an Arc<Client>
+    let mcp_server = McpLanguageServer::new(Arc::clone(&lsp_client), temp_dir.path().to_path_buf());
 
     // Create a mock transport
     let (transport, mut out_rx, in_tx) = MockTransport::new();
@@ -203,8 +221,8 @@ async fn test_mcp_edit_tool() -> Result<()> {
     tokio::fs::write(&file_path, content).await?;
     lsp_client.open_file(&file_path).await?;
 
-    // Create MCP server
-    let mcp_server = McpLanguageServer::new(lsp_client, temp_dir.path().to_path_buf());
+    // Create MCP server - client is already an Arc<Client>
+    let mcp_server = McpLanguageServer::new(Arc::clone(&lsp_client), temp_dir.path().to_path_buf());
 
     // Create a mock transport
     let (transport, mut out_rx, in_tx) = MockTransport::new();
